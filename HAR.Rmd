@@ -1,0 +1,138 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Mayur Narsude"
+date: "September 25, 2015"
+output: html_document
+---
+
+## Executive Summary
+The data for this report is collected using devices such as Jawbone Up, Nike FuelBand, and Fitbit and is made available by [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har). The data was collected using accelerometers on the belt, forearm, arm, and dumbell of 6 participants. These participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Random Forest classifier was used to build a prediction algorithm to predict the way barbell lifts were performed. Finally, the classe type was predicted using this model for 20 test cases provided. 
+
+## Loading the packages used
+Populate required packages at one place i.e. at the begining of the document.
+
+```{r, echo= TRUE, message=FALSE}
+
+if (!require("pacman")) {
+    install.packages("pacman")
+}
+pacman::p_load(dplyr, caret, randomForest, e1071)
+
+```
+
+## Download the data
+
+```{r, echo = TRUE, warning=FALSE}
+
+setwd("C:/Users/narsude/Documents/practicalMachineLearning")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "trainFile.csv", method = "curl")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testFile.csv", method = "curl")
+
+```
+
+## Exploratory Data Analysis
+
+```{r, echo=TRUE}
+
+trainData <- read.csv("trainFile.csv", header = TRUE)
+dim(trainData)
+sum(is.na(trainData))
+
+```
+
+So we see that there are a lot of missing values in the data. 
+
+## Pre-processing
+
+Let us try to reduce the size of the predictor varibales and also the missing values.
+
+```{r, echo=TRUE}
+
+# exclude near zero variance features
+nearZeroFeat <- nearZeroVar(trainData)
+trainData <- trainData[, -nearZeroFeat]
+dim(trainData)
+
+```
+
+Since there are a lot of missing values, we would like to impute the missing values using `knnImpute` method. Inspection of the columns gives an idea that  non-numeric predictors can safely be discarded as they record non-significant data (like name, date etc) for this predictive analysis.
+
+```{r, echo=TRUE}
+
+numColIndex <- which(lapply(trainData, class) %in% c("numeric"))
+imputeModel <- preProcess(trainData[, numColIndex], method = "knnImpute")
+numFeatures <- predict(imputeModel, trainData[, numColIndex])
+
+```
+
+Combine above imputed columns with `classe` variable which is our output of interest.
+
+```{r, echo = TRUE}
+
+trainData <- data.frame(cbind(trainData$classe, numFeatures))
+names(trainData)[1] <- "classe"
+
+```
+
+## Model building
+
+Since this is a classification problem, let us build out model using Random Forest classifier due to its high accuracy.
+
+```{r, echo = TRUE}
+
+set.seed(1836)
+inTrain <- createDataPartition(trainData$classe, p = 0.8, list = FALSE)
+training <- trainData[inTrain, ]
+validation <- trainData[-inTrain, ]
+
+rfModel <- randomForest(classe ~ ., data = training, importance = TRUE, ntree = 25)
+
+```
+
+## Model Validation 
+
+Let us check the training set accuracy. We expect to see a high accuracy since this is the dataset on which model was build, so the model might have overfitted the data.
+
+```{r, echo=TRUE}
+
+print(confusionMatrix(predict(rfModel, training), training$classe))
+
+```
+
+Not suprising that the model is quite accurate for training set. Let us check it for validation set, which would be our out of sample error check before we apply it for test set.
+
+```{r, echo=TRUE}
+
+predVal <- predict(rfModel, validation)
+table(predVal, validation$classe)
+
+```
+
+Looks impressive! This gives a good confidence to use our model for test dataset provided.
+
+## Test Dataset Predictions
+
+```{r, echo=TRUE}
+testData <- read.csv("testFile.csv", header = TRUE)
+testData <- testData[, -nearZeroFeat]
+testData <- predict(imputeModel, testData[, numColIndex])
+answers <- predict(rfModel, testData)
+answers
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+dir.create("submission")
+setwd("./submission")
+pml_write_files(answers)
+```
+
